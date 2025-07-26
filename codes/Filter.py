@@ -116,37 +116,98 @@ class KalmanFilter:
         return smoothedStates, smoothedCovariances
     
     
-    def extrapolateToOrigin(self, state: np.array, covMat: np.array, zVals: np.array):
-        # From the results of the Kalman filter, extrapolate the track to the origin
-        currentState = state.copy()
-        currentCovMat = covMat.copy()
-        currentZ = zVals[-1]
+    def extrapolateToOrigin_Advanced(self, smoothedStates: np.array, smoothedCovariances: np.array, measurements: np.array, zVals: np.array):
+        """
+        Advanced extrapolation: Use the smoothed state closest to origin for better accuracy
+        This minimizes extrapolation distance and uses all track information from smoothing
+        """
         
-        originalstep = np.abs(zVals[1] - zVals[0])  # original step size
+        # Find the measurement closest to the origin (z=0)
+        measurement_z_positions = measurements[:, 2]
+        closest_to_origin_idx = np.argmin(np.abs(measurement_z_positions))
         
-        small_step = min(originalstep, abs(currentZ) / 100)
-        self.propagator.setStepSize(small_step)  # use a smaller step size for extrapolation
+        # Use the smoothed state closest to origin
+        best_state = smoothedStates[closest_to_origin_idx].copy()
+        best_cov = smoothedCovariances[closest_to_origin_idx].copy()
+        start_z = measurement_z_positions[closest_to_origin_idx]
+        
+        print(f"Using smoothed state from measurement {closest_to_origin_idx} at z={start_z:.1f} cm (closest to origin)")
+        print(f"Initial state at z={start_z:.1f}: x={best_state[0]:.3f}, y={best_state[1]:.3f}, q/p={best_state[4]:.6f}")
+        
+        # Initialize extrapolation
+        currentState = best_state.copy()
+        currentCovMat = best_cov.copy()
+        currentZ = start_z
+        
+        # Calculate adaptive step size
+        originalstep = np.abs(zVals[1] - zVals[0])
+        total_distance = abs(currentZ)
+        
+        # Use smaller steps for better accuracy
+        if total_distance > 100:  # cm
+            adaptive_step = min(originalstep, total_distance / 100)  # At least 100 steps
+        else:
+            adaptive_step = min(originalstep, total_distance / 20)   # At least 20 steps
+        
+        print(f"Extrapolating {total_distance:.1f} cm to origin with step size {adaptive_step:.3f} cm")
+        
+        # Extrapolation loop
+        iteration = 0
+        max_iterations = int(total_distance / adaptive_step) + 1000  # Safety margin
+        
+        while abs(currentZ) > 1e-6 and iteration < max_iterations:
+            # Calculate step size (negative to go towards origin)
+            remaining_distance = abs(currentZ)
+            step_size = -np.sign(currentZ) * min(adaptive_step, remaining_distance)
+            
+            # Prevent tiny steps that cause numerical issues
+            if abs(step_size) < 1e-9:
+                print(f"Step size too small ({abs(step_size):.2e}), stopping extrapolation")
+                break
+            
+            try:
+                # Propagate one step towards origin
+                currentState, currentCovMat, _ = self.propagator.RK4Propagator(
+                    currentState, currentCovMat, step_size, currentZ
+                )
+                currentZ += step_size
+                iteration += 1
+                
+                # Progress reporting every 1000 steps
+                if iteration % 1000 == 0:
+                    print(f"  Step {iteration}: z = {currentZ:.3f} cm, x = {currentState[0]:.3f} cm")
+                    
+            except Exception as e:
+                print(f"Extrapolation failed at z={currentZ:.3f} after {iteration} steps: {e}")
+                print("Using last valid state")
+                break
+        
+        # Final results
+        origin_qp = currentState[4]  # [e/MeV] from Setup.py
+        p_magnitude_MeV = 1.0 / abs(origin_qp) if origin_qp != 0 else None
+        p_magnitude_GeV = p_magnitude_MeV / 1000.0 if p_magnitude_MeV else None
+        
+        print(f"\nExtrapolation completed:")
+        print(f"  Steps taken: {iteration}")
+        print(f"  Final z position: {currentZ:.6f} cm")
+        print(f"  Position at origin: ({currentState[0]:.3f}, {currentState[1]:.3f}) cm")
+        print(f"  q/p at origin: {origin_qp:.6f} e/MeV")
+        if p_magnitude_GeV:
+            print(f"  Momentum magnitude: {p_magnitude_GeV:.3f} GeV/c")
+        
+        # Calculate uncertainty at origin
+        position_uncertainty = np.sqrt(currentCovMat[0,0] + currentCovMat[1,1])
+        momentum_uncertainty = abs(origin_qp) * np.sqrt(currentCovMat[4,4]) / (origin_qp**2) / 1000.0 if origin_qp != 0 else None
+        
+        print(f"  Position uncertainty: ±{position_uncertainty:.3f} cm")
+        if momentum_uncertainty:
+            print(f"  Momentum uncertainty: ±{momentum_uncertainty:.3f} GeV/c")
+        
+        return currentState, currentCovMat
 
-        while abs(currentZ) > 1e-6:
-            print(currentZ)
-            step_size = -min(originalstep, abs(currentZ))  # ensure we don't overshoot the origin
-            # FIX: RK4Propagator gibt 3 Werte zurück!
-            currentState, currentCovMat, _ = self.propagator.RK4Propagator(currentState, currentCovMat, step_size, currentZ)
-            currentZ += step_size
-
-        originState = currentState
-        originCovMat = currentCovMat
-        self.propagator.setStepSize(originalstep)  # reset the step size to the original value
-        
-        # extract parameters at the origin
-        originX = originState[0]
-        originY = originState[1]
-        originZ = currentZ
-        origin_qp = originState[4]
-        
-        p_magnitude = 1.0 / np.abs(origin_qp) if origin_qp != 0 else None
-        print('='*50)
-        print(f'Extrapolated to origin: x=({originX:.3f}, {originY:.3f}, {originZ:.6f}) cm')
-        print(f'Momentum: p={p_magnitude:.3f} GeV/c, q/p={origin_qp:.6f} [e/GeV]')
-        
-        return originState, originCovMat
+    def extrapolateToOrigin(self, smoothedStates: np.array, smoothedCovariances: np.array, zVals: np.array,measurements: np.array):
+        """
+        Wrapper function that calls the advanced extrapolation method
+        Updated interface to use all smoothed states instead of just the last one
+        """
+        return self.extrapolateToOrigin_Advanced(smoothedStates, smoothedCovariances, measurements, zVals)

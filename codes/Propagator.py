@@ -130,45 +130,40 @@ class Propagator:
         return processCov
 
     def RK4Propagator(self,state: np.array, covMat: np.array, stepSize: float, z: int):
-        identity = np.identity(5)
-        
-        # compute the different Runge-Kutta constants; use .dot to do the matrix vector multiplication
-        # use the implementation for the Jacobian Propagation matrix to compute covariances
-        propMat1 = self.firstOrderSystemFunction(state, stepSize, z)
-        
-        k1 = propMat1.dot(state)
-        
-        midpoint1 = state + k1 * 0.5
-        propMat2_raw = self.firstOrderSystemFunction(midpoint1, stepSize, z + stepSize/2.0)
-        k2 = propMat2_raw.dot(midpoint1)
-        
-        midpoint2 = state + k2 * 0.5
-        propMat3_raw = self.firstOrderSystemFunction(midpoint2, stepSize, z + stepSize/2.0)
-        k3 = propMat3_raw.dot(midpoint2)
-        
-        endpoint = state + k3
-        propMat4_raw = self.firstOrderSystemFunction(endpoint, stepSize, z + stepSize)
-        k4 = propMat4_raw.dot(endpoint)
-        
-        propMat2 = propMat2_raw @ (identity + 0.5 * propMat1)
-        propMat3 = propMat3_raw @ (identity + 0.5 * propMat2)
-        propMat4 = propMat4_raw @ (identity + 1.0 * propMat3)
-        
-        #  Compute the new propagation matrix see RK4 method
-        propMat = identity + (
-            1/6.0 * propMat1 + 
-            1/3.0 * propMat2 + 
-            1/3.0 * propMat3 + 
-            1/6.0 * propMat4
-        )
-                
-        # RK4 state update
+        # RK4 for State Vector
         k1_state = self.zerothOrderSystemFunction(state, stepSize, z)
         k2_state = self.zerothOrderSystemFunction(state + 0.5 * k1_state, stepSize, z + 0.5 * stepSize)
         k3_state = self.zerothOrderSystemFunction(state + 0.5 * k2_state, stepSize, z + 0.5 * stepSize)
         k4_state = self.zerothOrderSystemFunction(state + k3_state, stepSize, z + stepSize)
-
+        
         new_state = state + (stepSize/6.0) * (k1_state + 2*k2_state + 2*k3_state + k4_state)
+        
+        
+        # Covariance Update
+        # RK4 für Propagation Matrix F
+        identity = np.identity(5)
+        F = identity.copy()
+        
+        # k- States for F- Matrix
+        J1 = self.firstOrderSystemFunction(state, stepSize, z) / stepSize  # Jacobian ohne stepSize
+        k1_F = J1 @ F
+        
+        state2 = state + 0.5 * k1_state
+        J2 = self.firstOrderSystemFunction(state2, stepSize, z + 0.5 * stepSize) / stepSize
+        k2_F = J2 @ (F + 0.5 * stepSize * k1_F)
+        
+        state3 = state + 0.5 * k2_state
+        J3 = self.firstOrderSystemFunction(state3, stepSize, z + 0.5 * stepSize) / stepSize
+        k3_F = J3 @ (F + 0.5 * stepSize * k2_F)
+        
+        state4 = state + k3_state
+        J4 = self.firstOrderSystemFunction(state4, stepSize, z + stepSize) / stepSize  
+        k4_F = J4 @ (F + stepSize * k3_F)
+        
+        # RK4 update für F
+        propMat = F + (stepSize/6.0) * (k1_F + 2*k2_F + 2*k3_F + k4_F)
+        
+        # Kovarianz-Update
         new_covMat = propMat @ covMat @ propMat.T + self.computeProcessNoise(new_state, stepSize, z)
         
-        return new_state, new_covMat
+        return new_state, new_covMat, F

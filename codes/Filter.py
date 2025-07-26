@@ -131,9 +131,6 @@ class KalmanFilter:
         best_cov = smoothedCovariances[closest_to_origin_idx].copy()
         start_z = measurement_z_positions[closest_to_origin_idx]
         
-        print(f"Using smoothed state from measurement {closest_to_origin_idx} at z={start_z:.1f} cm (closest to origin)")
-        print(f"Initial state at z={start_z:.1f}: x={best_state[0]:.3f}, y={best_state[1]:.3f}, q/p={best_state[4]:.6f}")
-        
         # Initialize extrapolation
         currentState = best_state.copy()
         currentCovMat = best_cov.copy()
@@ -149,7 +146,6 @@ class KalmanFilter:
         else:
             adaptive_step = min(originalstep, total_distance / 20)   # At least 20 steps
         
-        print(f"Extrapolating {total_distance:.1f} cm to origin with step size {adaptive_step:.3f} cm")
         
         # Extrapolation loop
         iteration = 0
@@ -162,9 +158,8 @@ class KalmanFilter:
             
             # Prevent tiny steps that cause numerical issues
             if abs(step_size) < 1e-9:
-                print(f"Step size too small ({abs(step_size):.2e}), stopping extrapolation")
                 break
-            
+
             try:
                 # Propagate one step towards origin
                 currentState, currentCovMat, _ = self.propagator.RK4Propagator(
@@ -173,35 +168,10 @@ class KalmanFilter:
                 currentZ += step_size
                 iteration += 1
                 
-                # Progress reporting every 1000 steps
-                if iteration % 1000 == 0:
-                    print(f"  Step {iteration}: z = {currentZ:.3f} cm, x = {currentState[0]:.3f} cm")
-                    
             except Exception as e:
                 print(f"Extrapolation failed at z={currentZ:.3f} after {iteration} steps: {e}")
                 print("Using last valid state")
                 break
-        
-        # Final results
-        origin_qp = currentState[4]  # [e/MeV] from Setup.py
-        p_magnitude_MeV = 1.0 / abs(origin_qp) if origin_qp != 0 else None
-        p_magnitude_GeV = p_magnitude_MeV / 1000.0 if p_magnitude_MeV else None
-        
-        print(f"\nExtrapolation completed:")
-        print(f"  Steps taken: {iteration}")
-        print(f"  Final z position: {currentZ:.6f} cm")
-        print(f"  Position at origin: ({currentState[0]:.3f}, {currentState[1]:.3f}) cm")
-        print(f"  q/p at origin: {origin_qp:.6f} e/MeV")
-        if p_magnitude_GeV:
-            print(f"  Momentum magnitude: {p_magnitude_GeV:.3f} GeV/c")
-        
-        # Calculate uncertainty at origin
-        position_uncertainty = np.sqrt(currentCovMat[0,0] + currentCovMat[1,1])
-        momentum_uncertainty = abs(origin_qp) * np.sqrt(currentCovMat[4,4]) / (origin_qp**2) / 1000.0 if origin_qp != 0 else None
-        
-        print(f"  Position uncertainty: ±{position_uncertainty:.3f} cm")
-        if momentum_uncertainty:
-            print(f"  Momentum uncertainty: ±{momentum_uncertainty:.3f} GeV/c")
         
         return currentState, currentCovMat
 

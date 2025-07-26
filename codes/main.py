@@ -77,7 +77,7 @@ def run_tracking_simulation():
     )
     
     # Initialize particle
-    momentum = np.array([0.0, 0.01, 1])  # GeV/c in x, y, z
+    momentum = np.array([0.0, 0.1, 1])  # GeV/c in x, y, z
     position = np.array([0.0, 0.0])       # cm, starting position
 
     initialState, initialCovMat = init_state(momentum, position)
@@ -127,6 +127,9 @@ def run_tracking_simulation():
     print(f"Reconstructed q/p at origin: {originState[4]:.6f} e/GeV")
     print(f"Reconstructed momentum: {1e-3/abs(originState[4]):.3f} GeV/c")
     print(f"Position at origin: ({originState[0]:.3f}, {originState[1]:.3f}) cm")
+
+
+
 
 
 if __name__ == "__main__":

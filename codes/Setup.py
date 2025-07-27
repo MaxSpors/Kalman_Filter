@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from typing import List, Tuple
 
 
-def setParticle(momentum: np.array, startingPosition: np.array, initialAccuracy:np.array)-> np.array:
+def setParticle(momentum: np.array, startingPosition: np.array, initialAccuracy:np.array, charge: float=-1.0)-> np.array:
     # Set the particle's initial momentum and position
     # also set the initial covariance matrix
     
@@ -21,7 +21,7 @@ def setParticle(momentum: np.array, startingPosition: np.array, initialAccuracy:
     ])
     
     # construct the state vector
-    state = np.array([startingPosition[0], startingPosition[1], momentum[0]/momentum[2], momentum[1]/momentum[2], -1./np.linalg.norm(momentum)], dtype=np.float64)
+    state = np.array([startingPosition[0], startingPosition[1], momentum[0]/momentum[2], momentum[1]/momentum[2], charge/np.linalg.norm(momentum)], dtype=np.float64)
 
     return state, initial_covMat
 

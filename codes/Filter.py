@@ -4,7 +4,6 @@ from typing import List, Tuple
 from Propagator import Propagator
 
 class KalmanFilter:
-    #  Here we implement the Kalman Filter+ Smoother
     def __init__(self, propagator: Propagator):
         self.propagator = propagator
         self.propagationMatrices = []  # Speichere F-Matrizen
@@ -29,7 +28,6 @@ class KalmanFilter:
             
         
         return currentState, currentCovMat, total_F 
-    
     
     def forwardFilter(self, measurements: np.array, covMat: np.array, measMat: np.array, measCovMat: np.array, state: np.array, zVals: np.array):
         # Ensure causality by ordering the measurements in z
@@ -85,8 +83,7 @@ class KalmanFilter:
             currentZ = measuredZ
 
         return filteredStates, filteredCovariances, predictedStates, predictedCovariances  
-        
-    
+            
     def backwardSmoothing(self, filteredStates: np.array, filteredCovariances: np.array, predictedStates: np.array, predictedCovariances: np.array, zVals: np.array, measurements: np.array):
         # initialize the smoothed states and covariances
         n_measurements = len(filteredStates)
@@ -114,19 +111,12 @@ class KalmanFilter:
             smoothedCovariances[i] = filteredCovariance + smoothingGain @ (smoothedCovariances[i + 1] - predictedCovariances[i + 1]) @ smoothingGain.T
         
         return smoothedStates, smoothedCovariances
-    
-    
-    def extrapolateToOrigin_Advanced(self, smoothedStates: np.array, smoothedCovariances: np.array, measurements: np.array, zVals: np.array):
-        """
-        Advanced extrapolation: Use the smoothed state closest to origin for better accuracy
-        This minimizes extrapolation distance and uses all track information from smoothing
-        """
-        
-        # Find the measurement closest to the origin (z=0)
+
+    def extrapolateToOrigin(self, smoothedStates: np.array, smoothedCovariances: np.array, zVals: np.array, measurements: np.array):
+        # Find the measurement closest to the origin, for the smoothed data this is the 'best' estimate for back propagation
         measurement_z_positions = measurements[:, 2]
         closest_to_origin_idx = np.argmin(np.abs(measurement_z_positions))
         
-        # Use the smoothed state closest to origin
         best_state = smoothedStates[closest_to_origin_idx].copy()
         best_cov = smoothedCovariances[closest_to_origin_idx].copy()
         start_z = measurement_z_positions[closest_to_origin_idx]
@@ -136,48 +126,11 @@ class KalmanFilter:
         currentCovMat = best_cov.copy()
         currentZ = start_z
         
-        # Calculate adaptive step size
-        originalstep = np.abs(zVals[1] - zVals[0])
-        total_distance = abs(currentZ)
+        step_size = -np.abs(zVals[1] - zVals[0])
         
-        # Use smaller steps for better accuracy
-        if total_distance > 100:  # cm
-            adaptive_step = min(originalstep, total_distance / 100)  # At least 100 steps
-        else:
-            adaptive_step = min(originalstep, total_distance / 20)   # At least 20 steps
-        
-        
-        # Extrapolation loop
-        iteration = 0
-        max_iterations = int(total_distance / adaptive_step) + 1000  # Safety margin
-        
-        while abs(currentZ) > 1e-6 and iteration < max_iterations:
-            # Calculate step size (negative to go towards origin)
-            remaining_distance = abs(currentZ)
-            step_size = -np.sign(currentZ) * min(adaptive_step, remaining_distance)
-            
-            # Prevent tiny steps that cause numerical issues
-            if abs(step_size) < 1e-9:
-                break
-
-            try:
-                # Propagate one step towards origin
-                currentState, currentCovMat, _ = self.propagator.RK4Propagator(
-                    currentState, currentCovMat, step_size, currentZ
-                )
-                currentZ += step_size
-                iteration += 1
-                
-            except Exception as e:
-                print(f"Extrapolation failed at z={currentZ:.3f} after {iteration} steps: {e}")
-                print("Using last valid state")
-                break
+        # Extrapolation loop        
+        while abs(currentZ) > 1e-6:
+            currentState, currentCovMat, _ = self.propagator.RK4Propagator(currentState, currentCovMat, step_size, currentZ)
+            currentZ += step_size
         
         return currentState, currentCovMat
-
-    def extrapolateToOrigin(self, smoothedStates: np.array, smoothedCovariances: np.array, zVals: np.array,measurements: np.array):
-        """
-        Wrapper function that calls the advanced extrapolation method
-        Updated interface to use all smoothed states instead of just the last one
-        """
-        return self.extrapolateToOrigin_Advanced(smoothedStates, smoothedCovariances, measurements, zVals)

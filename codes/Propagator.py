@@ -13,8 +13,13 @@ class Propagator:
         self.step_size=None
         self.lowerZBound=None
         self.upperZBound=None
-        
-    
+
+
+    def HighlandEstimate(self, momentum: float, zVals: np.array, mass: float, rad_length: float = 1.176e04) -> float:
+        beta = momentum / np.sqrt(momentum**2 + mass**2)
+        theta_rms = 13.6 / (momentum * beta) * np.sqrt(np.max(zVals) / rad_length)
+        return theta_rms
+
     # Parameter initialization functions
     def setB0(self,amplitude:float):
         self.magnetic_field = amplitude
@@ -28,9 +33,9 @@ class Propagator:
         
     def computeBField(self, point: np.array):
         _, _, z = point
-        constant_region = self.magnetic_field * np.heaviside(z-self.lowerZBound, 1) * np.heaviside(-z+self.upperZBound, 1)
-        lower_decay = self.magnetic_field * np.heaviside(-z+self.lowerZBound, 1) * np.exp(-5E-5*(z-self.lowerZBound)**2)
-        upper_decay = self.magnetic_field * np.heaviside(z-self.upperZBound, 1) * np.exp(-1E-5*(-z+self.upperZBound)**2)
+        constant_region = self.magnetic_field * np.heaviside(z-self.lowerZBound, self.magnetic_field) * np.heaviside(-z+self.upperZBound, self.magnetic_field)
+        lower_decay = self.magnetic_field * np.heaviside(-z+self.lowerZBound, self.magnetic_field) * np.exp(-5E-5*(z-self.lowerZBound)**2)
+        upper_decay = self.magnetic_field * np.heaviside(z-self.upperZBound, self.magnetic_field) * np.exp(-1E-5*(-z+self.upperZBound)**2)
 
         # compute the total field in the x direction
         field_x = constant_region + lower_decay + upper_decay
@@ -114,17 +119,19 @@ class Propagator:
         return jacobian
     
     def computeProcessNoise(self, state: np.array, stepSize: float, z: float):
-        # compute the process noise for the RK4 Algorithm. Introduce the process noise as matrix dependent on the step
-        # size, use detector uncertainties for estimating the values
+        # compute the process noise for the RK4 Algorithm
+        # see supplementary material of the paper for the process noise
+        momentum=1.0/state[4]/(1000)
         
-        position_accuracy = 1E-5  # accuracy for position
+        theta_rms=self.HighlandEstimate(momentum=momentum, zVals=np.array([z]), mass=0.511)
+        position_accuracy = theta_rms * stepSize if stepSize > 0 and theta_rms>0 else 1E-6
     
         processCov= stepSize*np.diag([
             position_accuracy,  # x
             position_accuracy,  # y
-            position_accuracy,  # tx
-            position_accuracy,  # ty
-            1E-6   # q/p
+            theta_rms,  # tx: derivatives can be approxiated by the angle
+            theta_rms,  # ty
+            1e-4
         ])
         
         return processCov
